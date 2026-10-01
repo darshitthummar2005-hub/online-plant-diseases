@@ -24,6 +24,7 @@ from app.config import get_settings
 from app.database import Database, get_database
 from app.seed_data_bacterial import BACTERIAL_DISEASES
 from app.seed_data_deficiency import DEFICIENCY_DISEASES
+from app.seed_data_expanded import EXPANDED_DISEASES
 from app.seed_data_fungal import FUNGAL_DISEASES
 from app.seed_data_pest import PEST_DISEASES
 from app.seed_data_viral import VIRAL_DISEASES
@@ -1686,6 +1687,7 @@ SEED_DISEASES += (
     + VIRAL_DISEASES
     + PEST_DISEASES
     + DEFICIENCY_DISEASES
+    + EXPANDED_DISEASES
 )
 
 

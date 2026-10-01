@@ -28,6 +28,16 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+try:  # Optional real image classifier; absent TensorFlow/model just logs.
+    from ml.inference import Prediction, classify_image
+except Exception as _ml_import_error:  # noqa: BLE001 - never block the API on ML
+    Prediction = None  # type: ignore[assignment]
+
+    def classify_image(*_args, **_kwargs):  # type: ignore[misc]
+        return None
+
+    logger.debug("ML inference unavailable: %s", _ml_import_error)
+
 MODEL_VERSION = "ai-plant-doctor-v2"
 
 # Confidence is reported as 0-100 (%).
@@ -81,6 +91,16 @@ class DetectService:
                 if cue not in symptoms:
                     symptoms.append(cue)
 
+        # Real CNN prediction when a trained model is installed. This is the
+        # authoritative signal; symptom matching remains the fallback.
+        ml_prediction = self._ml_prediction(payload.image_data)
+        if ml_prediction is not None:
+            logger.info(
+                "ML image prediction -> %s (%.1f%%)",
+                ml_prediction.disease_name,
+                ml_prediction.confidence,
+            )
+
         disease_docs = await self.diseases.find({}).to_list(length=10000)
 
         best = None
@@ -110,8 +130,40 @@ class DetectService:
             logger.warning("Detection ran with an empty disease knowledge base")
             return self._unknown_report(payload, symptoms, visual_signals, plant)
 
+        # A trained CNN outranks keyword matching when it produced a result.
+        ml_doc = None
+        ml_plant_agrees = False
+        if ml_prediction is not None:
+            ml_doc = self._find_by_name(disease_docs, ml_prediction.disease_name)
+            if ml_doc is not None:
+                ml_plant_agrees = (not plant) or self._plant_score(ml_doc, plant) or (
+                    bool(ml_prediction.crop) and plant == ml_prediction.crop
+                )
+                if ml_plant_agrees:
+                    best = ml_doc
+                    best_matched = self._score_symptoms(ml_doc, symptoms)[1]
+                    best_plant_match = True
+                else:
+                    # Model says one crop, the user selected another. Trust the
+                    # user's plant choice and keep the symptom-based match.
+                    logger.info(
+                        "ML predicted crop '%s' but user selected '%s'; keeping "
+                        "symptom match (%s)",
+                        ml_prediction.crop or "?",
+                        plant,
+                        best.get("name"),
+                    )
+                    ml_prediction = None
+
         plant_unknown = bool(plant) and not any_plant_match
-        if best_plant_match or not plant:
+        if ml_doc is not None and ml_prediction is not None:
+            # Report the model's probability, penalised when the crop disagrees.
+            confidence = (
+                min(100, ml_prediction.confidence)
+                if ml_plant_agrees
+                else max(5, min(100, ml_prediction.confidence) - 25)
+            )
+        elif best_plant_match or not plant:
             # Symptoms + plant agree (or no plant selected).
             confidence = min(100, self._confidence(len(best_matched), len(symptoms), has_image) + image_boost)
         else:
@@ -162,8 +214,50 @@ class DetectService:
             severity_levels=best.get("severity_levels", {}) or {},
             weather_conditions=best.get("weather_conditions", {}) or {},
             emergency_actions=best.get("emergency_actions", []),
-            extra=best.get("extra", {}) or {},
+            extra=self._merge_extra(best.get("extra"), ml_prediction, ml_plant_agrees),
         )
+
+    # ---------- Helpers ----------
+    @staticmethod
+    def _ml_prediction(image_data: str | None):
+        """Run the optional CNN over the image, tolerating every failure."""
+        if not image_data or classify_image is None:
+            return None
+        try:
+            return classify_image(image_data)
+        except Exception as exc:  # noqa: BLE001 - ML must never fail a request
+            logger.error("ML classification failed, using symptoms: %s", exc)
+            return None
+
+    @staticmethod
+    def _find_by_name(docs: list[dict], name: str) -> dict | None:
+        """Locate a knowledge-base document by (case-insensitive) name."""
+        if not name:
+            return None
+        target = re.sub(r"[^a-z0-9]", "", name.lower())
+        for doc in docs:
+            candidate = re.sub(r"[^a-z0-9]", "", str(doc.get("name", "")).lower())
+            if candidate == target:
+                return doc
+        return None
+
+    @staticmethod
+    def _merge_extra(
+        base: dict | None, ml_prediction, ml_plant_agrees: bool
+    ) -> dict:
+        """Attach classifier details to the response without losing stored extras."""
+        merged = dict(base or {})
+        if ml_prediction is None:
+            return merged
+        merged["ml"] = {
+            **ml_prediction.as_dict(),
+            "plant_agrees": ml_plant_agrees,
+            "alternatives": [
+                {"disease_name": name, "confidence": round(conf, 2)}
+                for name, conf in ml_prediction.alternatives
+            ],
+        }
+        return merged
 
     # ---------- Scoring helpers ----------
     @staticmethod

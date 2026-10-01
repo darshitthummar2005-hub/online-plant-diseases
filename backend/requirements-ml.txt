@@ -1,0 +1,16 @@
+# ML extras (real image classification)
+# Install only if you intend to train/infer a model locally.
+#
+# Training typically needs a few minutes on CPU and ~2GB RAM; inference is
+# sub-second on modern CPUs.
+#
+# Training dataset: https://www.kaggle.com/datasets/emmarex/plantdisease
+# (PlantVillage). Download and extract to `backend/ml/data/PlantVillage/` with
+# class subdirectories, e.g.
+#   backend/ml/data/PlantVillage/Apple___Apple_scab/
+#   backend/ml/data/PlantVillage/Tomato___Late_blight/
+tensorflow-cpu==2.18.0; platform_system != "Windows"
+tensorflow==2.18.0; platform_system == "Windows"
+numpy==1.26.4
+pillow==12.3.0
+tqdm==4.67.1
