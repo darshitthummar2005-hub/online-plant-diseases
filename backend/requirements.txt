@@ -1,0 +1,24 @@
+# Core web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Async MongoDB driver
+motor==3.7.1
+
+# Data validation / serialization (Pydantic v2)
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.2.0
+
+# Authentication & security
+PyJWT==2.10.1
+bcrypt==4.3.0
+python-multipart==0.0.20
+
+# Image handling for uploads
+Pillow==12.3.0
+python-magic-bin==0.4.14; platform_system == "Windows"
+python-magic==0.4.27; platform_system != "Windows"
+
+# Environment variables & misc
+python-dotenv==1.0.1

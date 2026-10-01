@@ -1,0 +1,49 @@
+# ---- Secrets: never commit these ----
+# backend/.env holds the ADMIN_ACCOUNTS passwords and the JWT signing secret.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+secrets*.json
+
+# ---- Dependencies ----
+node_modules/
+.venv/
+venv/
+venv_*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- Build output ----
+dist/
+build/
+.vite/
+
+# ---- Logs / runtime ----
+*.log
+*.pid
+*.err
+npm-debug.log*
+yarn-error.log*
+
+# ---- Local tooling binaries ----
+cloudflared.exe
+ngrok.exe
+.localtunnel/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Test scratch ----
+_uploads/
+coverage/
+.pytest_cache/

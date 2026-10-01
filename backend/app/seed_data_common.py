@@ -1,0 +1,45 @@
+"""Shared builders for the expanded AI Plant Doctor knowledge base."""
+
+
+def _disease(
+    *,
+    name,
+    category,
+    scientific_name,
+    severity,
+    description,
+    symptoms,
+    causes,
+    treatment,
+    prevention,
+    affected_plants,
+    chemical_treatment,
+    biological_treatment,
+    organic_remedies,
+    prevention_tips,
+    fertilizer,
+    severity_levels,
+    weather_conditions,
+    emergency_actions,
+) -> dict:
+    """Build a full disease knowledge-base record from explicit fields."""
+    return {
+        "name": name,
+        "category": category,
+        "scientific_name": scientific_name,
+        "severity": severity,
+        "description": description,
+        "symptoms": symptoms,
+        "causes": causes,
+        "treatment": treatment,
+        "prevention": prevention,
+        "affected_plants": affected_plants,
+        "chemical_treatment": chemical_treatment,
+        "biological_treatment": biological_treatment,
+        "organic_remedies": organic_remedies,
+        "prevention_tips": prevention_tips,
+        "fertilizer": fertilizer,
+        "severity_levels": severity_levels,
+        "weather_conditions": weather_conditions,
+        "emergency_actions": emergency_actions,
+    }

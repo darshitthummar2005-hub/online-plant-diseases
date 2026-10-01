@@ -1,0 +1,55 @@
+export const botanists = [
+  {
+    id: 1,
+    name: 'Dr. Meera Sharma',
+    specialty: 'Plant Pathology',
+    experience: '12 yrs',
+    rating: 4.9,
+    available: 'Mon–Fri',
+    emoji: '🔬',
+  },
+  {
+    id: 2,
+    name: 'Dr. James Carter',
+    specialty: 'Soil Science & Fertility',
+    experience: '9 yrs',
+    rating: 4.8,
+    available: 'Tue–Sat',
+    emoji: '🌾',
+  },
+  {
+    id: 3,
+    name: 'Dr. Amara Okafor',
+    specialty: 'Organic Farming',
+    experience: '15 yrs',
+    rating: 5.0,
+    available: 'Mon–Wed',
+    emoji: '🌿',
+  },
+  {
+    id: 4,
+    name: 'Dr. Lucas Meyer',
+    specialty: 'Pest Management',
+    experience: '7 yrs',
+    rating: 4.7,
+    available: 'Wed–Sun',
+    emoji: '🐛',
+  },
+  {
+    id: 5,
+    name: 'Dr. Sunita Patel',
+    specialty: 'Horticulture & Greenhouse',
+    experience: '11 yrs',
+    rating: 4.9,
+    available: 'Thu–Sun',
+    emoji: '🌱',
+  },
+]
+
+export const botanistReplies = {
+  1: 'From the photos, this looks like early blight. Remove the lower leaves and apply a copper fungicide. Keep foliage dry.',
+  2: 'Test your soil pH first — chlorosis between the veins is classic iron deficiency in alkaline soil. Chelated iron will fix it.',
+  3: 'Skip the synthetic sprays. A weekly neem oil solution at 1% concentration works wonders on aphids and mites.',
+  4: 'Check for webbing on the leaf undersides. Spider mites love dry air — bump up humidity and it will slow them down.',
+  5: 'Your greenhouse humidity looks high. Add fans for airflow and it will dramatically cut fungal pressure.',
+}
