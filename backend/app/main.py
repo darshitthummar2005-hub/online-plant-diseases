@@ -14,6 +14,8 @@ Run with:
     uvicorn app.main:app --reload
 """
 
+import logging
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -39,6 +41,7 @@ from app.utils.logger import setup_logging
 
 settings = get_settings()
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -91,11 +94,25 @@ def create_app() -> FastAPI:
     app.include_router(feedback_routes.router, prefix="/api")
 
     # --- Static files (uploaded images) ---
+    # NOTE for production: uploads are written to local disk. On hosts with an
+    # ephemeral filesystem (Render, Railway, Vercel) that directory is wiped on
+    # every deploy, so mount a persistent volume (or move to object storage)
+    # and point UPLOAD_DIR at it. See DEPLOYMENT.md.
     from pathlib import Path
 
     upload_dir = Path(settings.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
+    try:
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
+    except OSError as exc:
+        # Do not let a missing/unwritable upload directory stop the whole API
+        # from booting - everything except image upload keeps working.
+        logger.warning(
+            "Could not mount /uploads at %s (%s). Image uploads are disabled; "
+            "set UPLOAD_DIR to a writable, persistent path in production.",
+            upload_dir,
+            exc,
+        )
 
     # --- Health check ---
     @app.get("/", tags=["Health"], summary="Root", include_in_schema=False)

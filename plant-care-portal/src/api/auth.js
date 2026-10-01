@@ -10,7 +10,12 @@
  * the frontend bundle: authentication happens entirely on the backend.
  */
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
+// Dev falls back to the local backend; production falls back to same-origin
+// /api so a missing VITE_API_URL can never point browsers at localhost.
+const API_BASE = (
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api')
+).replace(/\/$/, '')
 
 const TOKEN_KEY = 'opd.auth.token'
 

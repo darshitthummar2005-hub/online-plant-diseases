@@ -1,7 +1,12 @@
 import { db } from '../db/database.js'
 import { PLANT_GROUPS } from '../db/seed.js'
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:8000/api').replace(/\/$/, '')
+// Dev falls back to the local backend; production falls back to same-origin
+// /api so a missing VITE_API_URL can never point browsers at localhost.
+const API_BASE = (
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api')
+).replace(/\/$/, '')
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
