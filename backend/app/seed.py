@@ -1702,7 +1702,10 @@ async def seed_database() -> None:
 async def _seed_diseases(db: Database) -> None:
     """Upsert every seed disease by name so existing databases get upgraded."""
     count = await db.plant_diseases.count_documents({})
-    if count > 0:
+    malformed = await db.plant_diseases.count_documents(
+        {"biological_treatment.name": {"$exists": True}}
+    )
+    if count > 0 and not malformed:
         existing = await db.plant_diseases.find_one(
             {"seed_version": {"$ne": SEED_VERSION}}
         )
@@ -1717,6 +1720,33 @@ async def _seed_diseases(db: Database) -> None:
     now = datetime.utcnow()
     inserted = 0
     upgraded = 0
+
+    # Earlier seeds used the wrong key inside biological_treatment, which made
+    # those documents fail response validation (HTTP 500). Repair them in place
+    # before the upsert loop so an existing database converges on a valid shape.
+    repaired = 0
+    for doc in await db.plant_diseases.find({"biological_treatment.name": {"$exists": True}}).to_list(
+        length=10000
+    ):
+        items = []
+        for item in doc.get("biological_treatment") or []:
+            if not isinstance(item, dict):
+                continue
+            if "agent" not in item and item.get("name"):
+                item = {
+                    "agent": item["name"],
+                    "type": item.get("type", "Beneficial microbe"),
+                    "application": item.get("application") or item.get("how_to_apply"),
+                    "when_to_apply": item.get("when_to_apply") or item.get("when"),
+                    "notes": item.get("notes") or item.get("description"),
+                }
+            items.append({k: v for k, v in item.items() if v is not None})
+        await db.plant_diseases.update_one(
+            {"_id": doc["_id"]}, {"$set": {"biological_treatment": items}}
+        )
+        repaired += 1
+    if repaired:
+        logger.warning("Repaired biological_treatment shape on %d documents", repaired)
 
     for d in SEED_DISEASES:
         doc = {

@@ -114,9 +114,11 @@ def _entry(
         chemical_treatment=chemical,
         biological_treatment=[
             {
-                "agent": "Beneficial microbes",
-                "description": "Compost tea, Trichoderma and Bacillus products suppress many soil-borne pathogens",
-                "how_to_apply": "Apply to soil or as a seed treatment, following product directions",
+                "agent": "Beneficial soil microbes",
+                "type": "Beneficial microbe",
+                "application": "Apply to soil or as a seed treatment, following product directions",
+                "when_to_apply": "At planting, and again whenever the soil is disturbed",
+                "notes": "Compost tea, Trichoderma and Bacillus products suppress many soil-borne pathogens",
             },
         ],
         organic_remedies=organic_remedies,

@@ -49,6 +49,17 @@ PLANT_MATCH_SCORE = 60
 PLANT_MISMATCH_PENALTY = 45
 SYMPTOM_POINTS = 10
 
+# Tie-breaking: a disease that lists the symptom explicitly is far better
+# evidence than one that merely mentions it in passing.
+SPECIFIC_SYMPTOM_BONUS = 8
+# "Healthy Foliage" reference rows must not win by default.
+GENERIC_HEALTHY_PENALTY = 12
+# Confidence reported when only a photo was supplied and nothing matched.
+LOW_IMAGE_ONLY_CONFIDENCE = 15
+# Confidence ceiling when the only evidence is the colour heuristic. These cues
+# ("browning", "powder") are far too generic to assert a specific disease.
+IMAGE_ONLY_CONFIDENCE = 35
+
 # Broad crop groups used by `affected_plants` entries such as "Cucurbits".
 PLANT_GROUPS: dict[str, list[str]] = {
     "cucurbits": ["cucumber", "squash", "pumpkin", "zucchini", "melon", "watermelon", "gourd"],
@@ -78,7 +89,10 @@ class DetectService:
 
     async def detect(self, payload: DetectRequest) -> DetectResponse:
         """Run detection and return the complete diagnosis report."""
-        symptoms = [s.strip().lower() for s in payload.symptoms if s.strip()]
+        # Symptoms the user actually ticked. Kept separate from anything the
+        # image analysis infers, because a colour heuristic is weak evidence and
+        # must never be scored like a human observation.
+        user_symptoms = [s.strip().lower() for s in payload.symptoms if s.strip()]
         plant = self._clean_name(payload.plant or "")
 
         # Lightweight visual analysis of the attached image (if any).
@@ -87,9 +101,11 @@ class DetectService:
         has_image = bool(payload.image_present or payload.image_data or payload.image_url)
         if payload.image_data:
             visual_signals, image_boost = self._analyze_image(payload.image_data)
-            for cue in visual_signals:
-                if cue not in symptoms:
-                    symptoms.append(cue)
+
+        symptoms = list(user_symptoms)
+        for cue in visual_signals:
+            if cue not in symptoms:
+                symptoms.append(cue)
 
         # Real CNN prediction when a trained model is installed. This is the
         # authoritative signal; symptom matching remains the fallback.
@@ -120,6 +136,10 @@ class DetectService:
                 score = s_matched * SYMPTOM_POINTS - PLANT_MISMATCH_PENALTY
             else:
                 score = s_matched * SYMPTOM_POINTS
+            # Ties must never be resolved by database order. Without this, every
+            # image produced the same arbitrary "first document" answer because
+            # a colour heuristic rarely matches any symptom keywords.
+            score += self._specificity_bonus(doc, symptoms)
             if score > best_score:
                 best = doc
                 best_score = score
@@ -129,6 +149,13 @@ class DetectService:
         if best is None:
             logger.warning("Detection ran with an empty disease knowledge base")
             return self._unknown_report(payload, symptoms, visual_signals, plant)
+
+        # A photo alone cannot identify a disease. Without selected symptoms or
+        # a trained model there is no real evidence, so say so instead of
+        # confidently naming whichever record happened to sort first.
+        if not symptoms and ml_prediction is None:
+            logger.info("Image-only detection with no symptoms: returning low confidence")
+            return self._insufficient_evidence_report(payload, visual_signals, plant)
 
         # A trained CNN outranks keyword matching when it produced a result.
         ml_doc = None
@@ -163,18 +190,42 @@ class DetectService:
                 if ml_plant_agrees
                 else max(5, min(100, ml_prediction.confidence) - 25)
             )
+        elif not user_symptoms:
+            # Nothing was ticked by the user; only crude colour cues from the
+            # photo. A single generic cue ("browning") matches many records, so
+            # this is a weak lead, not a diagnosis.
+            confidence = IMAGE_ONLY_CONFIDENCE
         elif best_plant_match or not plant:
             # Symptoms + plant agree (or no plant selected).
-            confidence = min(100, self._confidence(len(best_matched), len(symptoms), has_image) + image_boost)
+            confidence = min(
+                100,
+                self._confidence(
+                    len([m for m in best_matched if m in user_symptoms]),
+                    len(user_symptoms),
+                    has_image,
+                )
+                + image_boost,
+            )
         else:
             # Best match does not affect the chosen plant — down-weight heavily.
-            confidence = min(100, self._confidence(len(best_matched), len(symptoms), has_image) - 15)
+            confidence = min(
+                100,
+                self._confidence(
+                    len([m for m in best_matched if m in user_symptoms]),
+                    len(user_symptoms),
+                    has_image,
+                )
+                - 15,
+            )
 
         severity = str(best.get("severity") or "Moderate")
         expert, reason = self._expert_advice(confidence, severity, plant, plant_unknown)
 
         matched_set = set(best_matched)
-        unmatched = [s for s in symptoms if s not in matched_set]
+        unmatched = [s for s in user_symptoms if s not in matched_set]
+        if not user_symptoms:
+            # The colour cues that led here, so the UI can show what was measured.
+            unmatched = list(visual_signals)
 
         logger.info(
             "Detection -> %s (plant=%s conf=%d sev=%s expert=%s)",
@@ -292,6 +343,92 @@ class DetectService:
         affected_tokens = set(affected.split())
         plant_tokens = set(plant.split())
         return bool(affected_tokens & plant_tokens)
+
+    @staticmethod
+    def _specificity_bonus(doc: dict, symptoms: list[str]) -> int:
+        """
+        Deterministic tie-breaker that favours well-evidenced records.
+
+        Rewards documents that actually discuss the reported symptoms and
+        penalises generic "Healthy Foliage" entries, so an uninformative photo
+        cannot always resolve to the same reference record.
+        """
+        bonus = 0
+        haystack = " ".join(
+            [
+                str(doc.get("name", "")),
+                str(doc.get("description", "")),
+                " ".join(doc.get("symptoms", [])),
+            ]
+        ).lower()
+        # Count symptom occurrences in the disease's own symptom list.
+        listed = {str(s).lower() for s in doc.get("symptoms", [])}
+        for symptom in symptoms:
+            if symptom in listed:
+                bonus += SPECIFIC_SYMPTOM_BONUS
+            elif symptom in haystack:
+                bonus += 1
+        # "Healthy" reference entries must earn their place on real evidence.
+        if "healthy" in str(doc.get("name", "")).lower() and not bonus:
+            bonus -= GENERIC_HEALTHY_PENALTY
+        return bonus
+
+    def _insufficient_evidence_report(
+        self, payload: DetectRequest, visual_signals: list[str], plant: str
+    ) -> DetectResponse:
+        """
+        Honest response when only a photo was supplied.
+
+        Reports the colours that were actually measured, asks for symptoms, and
+        sets confidence low instead of guessing a disease.
+        """
+        observed = (
+            "The uploaded photo was measured but no symptom description was given."
+        )
+        if visual_signals:
+            observed += " Colour analysis suggests: " + ", ".join(visual_signals) + "."
+        else:
+            observed += " No clear colour signal was detected in the image."
+
+        return DetectResponse(
+            disease_id="",
+            disease_name="More information needed",
+            plant=payload.plant or None,
+            confidence=LOW_IMAGE_ONLY_CONFIDENCE,
+            severity="Unknown",
+            matched_symptoms=[],
+            unmatched_symptoms=visual_signals,
+            visual_signals=visual_signals,
+            expert_recommended=True,
+            consult_reason=(
+                observed
+                + " Select the symptoms you can see (or train the image model) for a "
+                "reliable diagnosis."
+            ),
+            model_version=payload.model_version or MODEL_VERSION,
+            predicted_at=datetime.utcnow(),
+            category=None,
+            scientific_name=None,
+            description=observed,
+            symptoms=[],
+            causes=[],
+            treatment=[
+                "Take a clear, well-lit close-up of the affected leaf",
+                "Select the symptoms you observe from the checklist",
+                "Retest after removing background objects from the photo",
+            ],
+            prevention=[],
+            affected_plants=[],
+            chemical_treatment=[],
+            biological_treatment=[],
+            organic_remedies=[],
+            prevention_tips=[],
+            fertilizer={},
+            severity_levels={},
+            weather_conditions={},
+            emergency_actions=[],
+            extra={"needs_more_info": True, "observed_signals": visual_signals},
+        )
 
     @staticmethod
     def _score_symptoms(doc: dict, symptoms: list[str]) -> tuple[int, list[str]]:
